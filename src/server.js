@@ -1,0 +1,147 @@
+require("dotenv").config();
+
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+const pool = require("./db");
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.json());
+
+// Serve static frontend (Bootstrap UI) from /public
+app.use(express.static(path.join(__dirname, "..", "public")));
+
+// Health check
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// Debug: List all tables in database
+app.get("/debug/tables", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      ORDER BY table_name
+    `);
+    res.json({ tables: result.rows.map((r) => r.table_name) });
+  } catch (err) {
+    console.error("Error listing tables:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /stores?name=&phone=&search_keyword=&page=&limit=
+app.get("/stores", async (req, res) => {
+  const {
+    name,
+    phone,
+    search_keyword: searchKeyword,
+    page = 1,
+    limit = 10,
+  } = req.query;
+
+  const conditions = [];
+  const values = [];
+
+  if (name) {
+    values.push(`%${name}%`);
+    conditions.push(`name ILIKE $${values.length}`);
+  }
+
+  if (phone) {
+    values.push(`%${phone}%`);
+    conditions.push(`phone ILIKE $${values.length}`);
+  }
+
+  if (searchKeyword) {
+    values.push(`%${searchKeyword}%`);
+    const idx = values.length;
+    // search over name + phone (mở rộng thêm cột khác nếu cần)
+    conditions.push(`(name ILIKE $${idx} OR phone ILIKE $${idx})`);
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(" AND ")}`
+    : "";
+
+  // Pagination
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+  const offset = (pageNum - 1) * limitNum;
+
+  // Get table name from env or default to 'store'
+  const tableName = process.env.DB_TABLE_NAME || "store";
+
+  // Count total
+  const countQuery = `SELECT COUNT(*)::int AS total FROM ${tableName} ${whereClause}`;
+
+  // Data query
+  const limitIdx = values.length + 1;
+  const offsetIdx = values.length + 2;
+  const dataQuery = `
+    SELECT id, name, phone
+    FROM ${tableName}
+    ${whereClause}
+    ORDER BY name ASC
+    LIMIT $${limitIdx}
+    OFFSET $${offsetIdx}
+  `;
+
+  try {
+    const countResult = await pool.query(countQuery, values);
+    const total = countResult.rows[0]?.total || 0;
+
+    const dataValues = [...values, limitNum, offset];
+    const dataResult = await pool.query(dataQuery, dataValues);
+
+    res.json({
+      data: dataResult.rows,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum) || 1,
+    });
+  } catch (err) {
+    console.error("Error querying stores:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /stores/:id
+app.delete("/stores/:id", async (req, res) => {
+  const { id } = req.params;
+  const tableName = process.env.DB_TABLE_NAME || "store";
+
+  if (!id) {
+    return res.status(400).json({ error: "ID is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM ${tableName} WHERE id = $1 RETURNING id, name, phone`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Store not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "Store deleted successfully",
+      deleted: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Error deleting store:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});

@@ -18,9 +18,10 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: false, // Set to false for HTTP, true for HTTPS
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: "lax",
     },
   })
 );
@@ -46,21 +47,20 @@ const requireAuth = (req, res, next) => {
   res.status(401).json({ error: "Unauthorized" });
 };
 
-// Serve static frontend (Bootstrap UI) from /public
-app.use(express.static(path.join(__dirname, "..", "public")));
-
-// Health check
+// Health check (no auth required)
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Auth routes
+// Auth routes (no auth required)
 app.post("/api/auth/login", async (req, res) => {
   const { username, password } = req.body;
 
   if (username === AUTH_USERNAME && password === AUTH_PASSWORD) {
     req.session.authenticated = true;
     req.session.username = username;
+    console.log("Login successful for:", username);
+    console.log("Session ID:", req.sessionID);
     res.json({ success: true, message: "Login successful" });
   } else {
     res.status(401).json({ error: "Invalid username or password" });
@@ -77,6 +77,8 @@ app.post("/api/auth/logout", (req, res) => {
 });
 
 app.get("/api/auth/check", (req, res) => {
+  console.log("Auth check - Session ID:", req.sessionID);
+  console.log("Auth check - Authenticated:", req.session?.authenticated);
   if (req.session && req.session.authenticated) {
     res.json({ authenticated: true, username: req.session.username });
   } else {
@@ -84,12 +86,16 @@ app.get("/api/auth/check", (req, res) => {
   }
 });
 
+// Serve static frontend (Bootstrap UI) from /public
+// Must be after auth routes but before protected routes
+app.use(express.static(path.join(__dirname, "..", "public")));
+
 // Redirect root to login if not authenticated
 app.get("/", (req, res) => {
   if (req.session && req.session.authenticated) {
     res.sendFile(path.join(__dirname, "..", "public", "index.html"));
   } else {
-    res.sendFile(path.join(__dirname, "..", "public", "login.html"));
+    res.redirect("/login.html");
   }
 });
 

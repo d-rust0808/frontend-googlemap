@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản lý Store - Google Map</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .main-container {
+            margin-top: 30px;
+            margin-bottom: 30px;
+        }
+        .filter-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .table-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .table-responsive {
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .pagination-info {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container main-container">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="mb-4">
+                    <i class="bi bi-shop"></i> Quản lý Store
+                </h1>
+            </div>
+        </div>
+
+        <!-- Filter Section -->
+        <div class="filter-card">
+            <h5 class="mb-3">
+                <i class="bi bi-funnel"></i> Bộ lọc
+            </h5>
+            <form id="filterForm">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label for="searchKeyword" class="form-label">Tìm kiếm (Tên hoặc SĐT)</label>
+                        <input type="text" class="form-control" id="searchKeyword" placeholder="Nhập từ khóa...">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="filterName" class="form-label">Lọc theo Tên</label>
+                        <input type="text" class="form-control" id="filterName" placeholder="Tên store...">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="filterPhone" class="form-label">Lọc theo SĐT</label>
+                        <input type="text" class="form-control" id="filterPhone" placeholder="Số điện thoại...">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="limitPerPage" class="form-label">Số bản ghi/trang</label>
+                        <select class="form-select" id="limitPerPage">
+                            <option value="10" selected>10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-search"></i> Tìm kiếm
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="resetBtn">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Table Section -->
+        <div class="table-card">
+            <div class="loading" id="loading">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Đang tải...</span>
+                </div>
+            </div>
+            <div id="tableContainer">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>STT</th>
+                                <th>Tên Store</th>
+                                <th>Số Điện Thoại</th>
+                                <th style="width: 120px;">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr>
+                                <td colspan="4" class="text-center">Đang tải dữ liệu...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <div class="pagination-info" id="paginationInfo">
+                    Hiển thị 0 - 0 trong tổng số 0 bản ghi
+                </div>
+                <nav>
+                    <ul class="pagination mb-0" id="pagination">
+                        <!-- Pagination buttons will be inserted here -->
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentPage = 1;
+        let currentLimit = 10;
+        let currentFilters = {};
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStores();
+            
+            // Form submit
+            document.getElementById('filterForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                currentPage = 1;
+                loadStores();
+            });
+
+            // Reset button
+            document.getElementById('resetBtn').addEventListener('click', () => {
+                document.getElementById('searchKeyword').value = '';
+                document.getElementById('filterName').value = '';
+                document.getElementById('filterPhone').value = '';
+                document.getElementById('limitPerPage').value = '10';
+                currentPage = 1;
+                currentLimit = 10;
+                currentFilters = {};
+                loadStores();
+            });
+
+            // Limit change
+            document.getElementById('limitPerPage').addEventListener('change', (e) => {
+                currentLimit = parseInt(e.target.value);
+                currentPage = 1;
+                loadStores();
+            });
+        });
+
+        async function loadStores() {
+            const loading = document.getElementById('loading');
+            const tableBody = document.getElementById('tableBody');
+            const pagination = document.getElementById('pagination');
+            const paginationInfo = document.getElementById('paginationInfo');
+
+            loading.style.display = 'block';
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Đang tải...</td></tr>';
+
+            // Get filter values
+            const searchKeyword = document.getElementById('searchKeyword').value.trim();
+            const filterName = document.getElementById('filterName').value.trim();
+            const filterPhone = document.getElementById('filterPhone').value.trim();
+
+            // Build query params
+            const params = new URLSearchParams();
+            if (searchKeyword) params.append('search_keyword', searchKeyword);
+            if (filterName) params.append('name', filterName);
+            if (filterPhone) params.append('phone', filterPhone);
+            params.append('page', currentPage);
+            params.append('limit', currentLimit);
+
+            try {
+                const response = await fetch(`/stores?${params.toString()}`);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Lỗi khi tải dữ liệu');
+                }
+
+                // Display data
+                if (result.data && result.data.length > 0) {
+                    tableBody.innerHTML = result.data.map((store, index) => {
+                        const stt = (currentPage - 1) * currentLimit + index + 1;
+                        const storeName = escapeHtml(store.name || '');
+                        return `
+                            <tr id="row-${store.id}">
+                                <td>${stt}</td>
+                                <td>${storeName}</td>
+                                <td>${escapeHtml(store.phone || '')}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-danger delete-btn" 
+                                            data-id="${store.id}" 
+                                            data-name="${storeName.replace(/"/g, '&quot;')}" 
+                                            title="Xóa">
+                                        <i class="bi bi-trash"></i> Xóa
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                    
+                    // Attach delete event listeners
+                    tableBody.querySelectorAll('.delete-btn').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const id = this.getAttribute('data-id');
+                            const name = this.getAttribute('data-name');
+                            deleteStore(id, name);
+                        });
+                    });
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Không có dữ liệu</td></tr>';
+                }
+
+                // Update pagination info
+                const start = result.data.length > 0 ? (currentPage - 1) * currentLimit + 1 : 0;
+                const end = start + result.data.length - 1;
+                paginationInfo.textContent = `Hiển thị ${start} - ${end} trong tổng số ${result.total} bản ghi`;
+
+                // Build pagination buttons
+                buildPagination(result.page, result.totalPages);
+
+            } catch (error) {
+                console.error('Error:', error);
+                tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Lỗi: ${error.message}</td></tr>`;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        async function deleteStore(id, name) {
+            if (!confirm(`Bạn có chắc chắn muốn xóa store "${name}"?\n\nHành động này không thể hoàn tác!`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/stores/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Lỗi khi xóa store');
+                }
+
+                // Show success message
+                alert(`Đã xóa store "${name}" thành công!`);
+                
+                // Reload data
+                loadStores();
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Lỗi khi xóa: ${error.message}`);
+            }
+        }
+
+        function buildPagination(currentPageNum, totalPages) {
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            // Previous button
+            const prevLi = document.createElement('li');
+            prevLi.className = `page-item ${currentPageNum === 1 ? 'disabled' : ''}`;
+            prevLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPageNum - 1}">Trước</a>`;
+            pagination.appendChild(prevLi);
+
+            // Page numbers
+            const maxVisible = 5;
+            let startPage = Math.max(1, currentPageNum - Math.floor(maxVisible / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+
+            if (endPage - startPage < maxVisible - 1) {
+                startPage = Math.max(1, endPage - maxVisible + 1);
+            }
+
+            if (startPage > 1) {
+                const firstLi = document.createElement('li');
+                firstLi.className = 'page-item';
+                firstLi.innerHTML = `<a class="page-link" href="#" data-page="1">1</a>`;
+                pagination.appendChild(firstLi);
+                if (startPage > 2) {
+                    const ellipsis = document.createElement('li');
+                    ellipsis.className = 'page-item disabled';
+                    ellipsis.innerHTML = '<span class="page-link">...</span>';
+                    pagination.appendChild(ellipsis);
+                }
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                const li = document.createElement('li');
+                li.className = `page-item ${i === currentPageNum ? 'active' : ''}`;
+                li.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+                pagination.appendChild(li);
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    const ellipsis = document.createElement('li');
+                    ellipsis.className = 'page-item disabled';
+                    ellipsis.innerHTML = '<span class="page-link">...</span>';
+                    pagination.appendChild(ellipsis);
+                }
+                const lastLi = document.createElement('li');
+                lastLi.className = 'page-item';
+                lastLi.innerHTML = `<a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a>`;
+                pagination.appendChild(lastLi);
+            }
+
+            // Next button
+            const nextLi = document.createElement('li');
+            nextLi.className = `page-item ${currentPageNum === totalPages ? 'disabled' : ''}`;
+            nextLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPageNum + 1}">Sau</a>`;
+            pagination.appendChild(nextLi);
+
+            // Add click handlers
+            pagination.querySelectorAll('a.page-link').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const page = parseInt(link.getAttribute('data-page'));
+                    if (page && page !== currentPageNum && page >= 1 && page <= totalPages) {
+                        currentPage = page;
+                        loadStores();
+                    }
+                });
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
+

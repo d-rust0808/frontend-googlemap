@@ -20,6 +20,8 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy application files
 COPY package*.json ./
 COPY src ./src
+
+# Copy public directory (must exist in build context)
 COPY public ./public
 
 # Create non-root user for security

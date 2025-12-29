@@ -3,13 +3,48 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const session = require("express-session");
+const bcrypt = require("bcryptjs");
 const pool = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// Session configuration
+app.use(
+  session({
+    secret:
+      process.env.SESSION_SECRET || "your-secret-key-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
+  })
+);
+
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Authentication credentials
+const AUTH_USERNAME = "cdudu.com";
+const AUTH_PASSWORD = "cdudu.com@882002";
+
+// Authentication middleware
+const requireAuth = (req, res, next) => {
+  if (req.session && req.session.authenticated) {
+    return next();
+  }
+  res.status(401).json({ error: "Unauthorized" });
+};
 
 // Serve static frontend (Bootstrap UI) from /public
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -17,6 +52,45 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+// Auth routes
+app.post("/api/auth/login", async (req, res) => {
+  const { username, password } = req.body;
+
+  if (username === AUTH_USERNAME && password === AUTH_PASSWORD) {
+    req.session.authenticated = true;
+    req.session.username = username;
+    res.json({ success: true, message: "Login successful" });
+  } else {
+    res.status(401).json({ error: "Invalid username or password" });
+  }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ error: "Failed to logout" });
+    }
+    res.json({ success: true, message: "Logout successful" });
+  });
+});
+
+app.get("/api/auth/check", (req, res) => {
+  if (req.session && req.session.authenticated) {
+    res.json({ authenticated: true, username: req.session.username });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
+// Redirect root to login if not authenticated
+app.get("/", (req, res) => {
+  if (req.session && req.session.authenticated) {
+    res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+  } else {
+    res.sendFile(path.join(__dirname, "..", "public", "login.html"));
+  }
 });
 
 // Debug: List all tables in database
@@ -36,7 +110,7 @@ app.get("/debug/tables", async (req, res) => {
 });
 
 // GET /stores?name=&phone=&search_keyword=&page=&limit=
-app.get("/stores", async (req, res) => {
+app.get("/stores", requireAuth, async (req, res) => {
   const {
     name,
     phone,
@@ -113,7 +187,7 @@ app.get("/stores", async (req, res) => {
 });
 
 // DELETE /stores/:id
-app.delete("/stores/:id", async (req, res) => {
+app.delete("/stores/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const tableName = process.env.DB_TABLE_NAME || "store";
 
